@@ -1,14 +1,14 @@
-/******************************************************************************
+/****************************************************************************
  * Copyright (c) 2023 BlazingStellar
  * 
- * This program and the accompanying materials are made available under the 
- * terms of the 
- * 		GNU General Public License v3.0 
+ * This program and the accompanying materials are made available 
+ * under the terms of the 
+ * 		GNU General Public License v3.0 only 
  * which is available at 
  * 		https://www.gnu.org/licenses/gpl-3.0-standalone.html 
  * 
- * SPDX-License-Identifier: GPL-3.0
- ******************************************************************************
+ * SPDX-License-Identifier: GPL-3.0-only
+ ****************************************************************************
  */
 package indi.blazing.stellar.jni.TDOMEncryptOrDecryptFileReborn;
 
