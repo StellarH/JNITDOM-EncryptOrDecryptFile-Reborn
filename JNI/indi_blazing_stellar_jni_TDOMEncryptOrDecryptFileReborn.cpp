@@ -11,7 +11,7 @@
  ****************************************************************************
  */
 #include <bits/stdc++.h>
-#include <jni.h>
+#include "indi_blazing_stellar_jni_TDOMEncryptOrDecryptFileReborn_StateDataWorker.h"
 #include "IsFor_EODF_Reborn.hpp"
 
 typedef Cryptograph::OaldresPuzzle_Cryptic::Version2::StateData_Worker<16, 32> StateData_Worker;
@@ -22,7 +22,7 @@ StateData_Worker* getPointer(JNIEnv* env, jobject obj) {
 	jfieldID field = env-> GetFieldID(cls, "address", "J");
 	return (StateData_Worker*)(env-> GetLongField(obj, field));
 }
-EXTERN_C {
+
 /*
  * Class:     indi_blazing_stellar_jni_TDOMEncryptOrDecryptFileReborn_StateDataWorker
  * Method:    getNewObjectPointer
@@ -142,5 +142,4 @@ JNIEXPORT jbyteArray JNICALL Java_indi_blazing_stellar_jni_TDOMEncryptOrDecryptF
 JNIEXPORT void JNICALL Java_indi_blazing_stellar_jni_TDOMEncryptOrDecryptFileReborn_StateDataWorker_close
   (JNIEnv*env , jobject obj) {
 	delete getPointer(env, obj);
-}
 }
