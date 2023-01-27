@@ -3,11 +3,13 @@
  * 
  * This program and the accompanying materials are made available 
  * under the terms of the 
- * 		GNU General Public License v3.0 only 
+ * 		GNU General Public License v3.0 only WITH Classpath exception 2.0
  * which is available at 
  * 		https://www.gnu.org/licenses/gpl-3.0-standalone.html 
+ * and
+ * 		https://www.gnu.org/software/classpath/license.html
  * 
- * SPDX-License-Identifier: GPL-3.0-only
+ * SPDX-License-Identifier: GPL-3.0-only WITH Classpath-exception-2.0
  ****************************************************************************
  */
 #include <bits/stdc++.h>
