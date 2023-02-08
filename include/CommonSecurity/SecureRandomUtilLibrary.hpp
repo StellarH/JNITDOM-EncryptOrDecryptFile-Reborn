@@ -598,14 +598,12 @@ namespace CommonSecurity::SecureRandomUtils
 	 */
 
 	template <typename Numeric>
-	using uniform_distribution = typename std::conditional
+	using UniformDistributionType = typename std::conditional
 	<
 		std::is_integral<Numeric>::value,
-		std::uniform_int_distribution<Numeric>,
-		std::uniform_real_distribution<Numeric> 
+		CommonSecurity::RND::UniformIntegerDistribution<Numeric>,
+		CommonSecurity::RND::UniformRealNumberDistribution<Numeric> 
 	>::type;
-
-
 
 	//////////////////////////////////////////////////////////////////////////////
 	//
@@ -764,34 +762,31 @@ namespace CommonSecurity::SecureRandomUtils
 		template <typename Numeric>
 		Numeric uniform(Numeric lower, Numeric upper)
 		{
-			return variate<Numeric,uniform_distribution>(lower, upper);
+			return variate<Numeric,UniformDistributionType>(lower, upper);
 		}
 
 		template
 		<
-			template <typename> class UD_Type = uniform_distribution,
 			typename Iter,
 			typename... Params
 		>
 		void generate(Iter first, Iter last, Params&&... params)
 		{
-			using result_type =
-			   typename std::remove_reference<decltype(*(first))>::type;
+			using result_type = typename std::remove_reference<decltype(*(first))>::type;
 
-			UD_Type<result_type> dist(std::forward<Params>(params)...);
+			UniformDistributionType<result_type> dist(std::forward<Params>(params)...);
 
 			std::generate(first, last, [&]{ return dist(_random_engine_); });
 		}
 
 		template
 		<
-			template <typename> class UD_Type = uniform_distribution,
 			typename Range,
 			typename... Params
 		>
 		void generate(Range&& range, Params&&... params)
 		{
-			generate<UD_Type>
+			generate<UniformDistributionType>
 			(
 				std::begin(range),
 				std::end(range),
@@ -802,7 +797,7 @@ namespace CommonSecurity::SecureRandomUtils
 		template <typename Iter>
 		void shuffle(Iter first, Iter last)
 		{
-			std::shuffle(first, last, _random_engine_);
+			CommonSecurity::ShuffleRangeData(first, last, _random_engine_);
 		}
 
 		template <typename Range>
@@ -810,7 +805,6 @@ namespace CommonSecurity::SecureRandomUtils
 		{
 			shuffle(std::begin(range), std::end(range));
 		}
-
 
 		template <typename Iter>
 		Iter choose(Iter first, Iter last)
@@ -2352,42 +2346,49 @@ namespace CommonSecurity
 	{
 
 		/*
-			RNG_ISAAC_BASE contains code common to isaac and isaac64.
+			RNG_ISAAC contains code common to isaac and isaac64.
 			It uses CRTP (a.k.a. 'static polymorphism') to invoke specialized methods in the derived class templates,
 			avoiding the cost of virtual method invocations and allowing those methods to be placed inline by the compiler.
 			Applications should not specialize or instantiate this template directly.
 		*/
 
-		template<class Derived, std::size_t Alpha, class T>
-		class RNG_ISAAC_BASE
+		template<std::size_t Alpha, class T>
+		class RNG_ISAAC
 		{
 		public:
 			using result_type = T;
 
-		protected:
 			static constexpr std::size_t state_size = 1 << Alpha;
 
 			static constexpr result_type default_seed = 0;
 
-			explicit RNG_ISAAC_BASE(result_type seed_number)
+			RNG_ISAAC()
+			{
+				seed(default_seed);
+			}
+
+			explicit RNG_ISAAC(result_type seed_number)
+				: issac_base_member_counter(state_size)
 			{
 				seed(seed_number);
 			}
-	
+
 			template <typename SeedSeq>
 			requires( not std::convertible_to<SeedSeq, result_type> )
-			explicit RNG_ISAAC_BASE( SeedSeq& number_sequence )
+			explicit RNG_ISAAC( SeedSeq& number_sequence )
+				: issac_base_member_counter(state_size)
 			{
 				seed(number_sequence);
 			}
 	
-			RNG_ISAAC_BASE(const std::vector<result_type>& seed_vector)
+			RNG_ISAAC(const std::vector<result_type>& seed_vector)
+				: issac_base_member_counter(state_size)
 			{
 				seed(seed_vector);
 			}
 	
 			template<class IteratorType>
-			RNG_ISAAC_BASE
+			RNG_ISAAC
 			(
 				IteratorType begin,
 				IteratorType end,
@@ -2397,16 +2398,19 @@ namespace CommonSecurity
 						std::is_unsigned<typename std::iterator_traits<IteratorType>::value_type>::value
 				>::type* = nullptr
 			)
+			: issac_base_member_counter(state_size)
 			{
 				seed(begin, end);
 			}
 	
-			RNG_ISAAC_BASE(std::random_device& random_device_object)
+			RNG_ISAAC(std::random_device& random_device_object)
+				: issac_base_member_counter(state_size)
 			{
 				seed(random_device_object);
 			}
 
-			RNG_ISAAC_BASE(const RNG_ISAAC_BASE& other)
+			RNG_ISAAC(const RNG_ISAAC& other)
+				: issac_base_member_counter(state_size)
 			{
 				for (std::size_t index = 0; index < state_size; ++index)
 				{
@@ -2430,7 +2434,7 @@ namespace CommonSecurity
 				return std::numeric_limits<result_type>::max();
 			}
 	
-			inline void seed(result_type seed_number = default_seed)
+			inline void seed(result_type seed_number)
 			{
 				for (std::size_t index = 0; index < state_size; ++index)
 				{
@@ -2498,7 +2502,10 @@ namespace CommonSecurity
 
 			inline result_type operator()()
 			{
-				return (!issac_base_member_counter--) ? (do_isaac(), issac_base_member_counter = state_size - 1, issac_base_member_result[issac_base_member_counter]) : issac_base_member_result[issac_base_member_counter];
+				if(issac_base_member_counter - 1 == std::numeric_limits<std::size_t>::max())
+					issac_base_member_counter = state_size - 1;
+
+				return (!issac_base_member_counter--) ? (do_isaac(), issac_base_member_result[issac_base_member_counter]) : issac_base_member_result[issac_base_member_counter];
 			}
 	
 			inline void discard(unsigned long long z)
@@ -2506,7 +2513,7 @@ namespace CommonSecurity
 				for (; z; --z) operator()();
 			}
 
-			friend bool operator==(const RNG_ISAAC_BASE& left, const RNG_ISAAC_BASE& right)
+			friend bool operator==(const RNG_ISAAC& left, const RNG_ISAAC& right)
 			{
 				bool equal = true;
 				if (left.issac_base_member_register_a != right.issac_base_member_register_a || left.issac_base_member_register_b != right.issac_base_member_register_b || left.issac_base_member_register_c != right.issac_base_member_register_c || left.issac_base_member_counter != right.issac_base_member_counter)
@@ -2527,13 +2534,13 @@ namespace CommonSecurity
 				return equal;
 			}
 
-			friend bool operator!=(const RNG_ISAAC_BASE& left, const RNG_ISAAC_BASE& right)
+			friend bool operator!=(const RNG_ISAAC& left, const RNG_ISAAC& right)
 			{
 				return !(left == right);
 			}
 
 			template <class CharT, class Traits>
-			friend std::basic_ostream<CharT, Traits>& operator<<(std::basic_ostream<CharT, Traits>& os, const RNG_ISAAC_BASE& isaac_base_object)
+			friend std::basic_ostream<CharT, Traits>& operator<<(std::basic_ostream<CharT, Traits>& os, const RNG_ISAAC& isaac_base_object)
 			{
 				auto format_flags = os.flags();
 				os.flags(std::ios_base::dec | std::ios_base::left);
@@ -2558,7 +2565,7 @@ namespace CommonSecurity
 	
 			template <class CharT, class Traits>
 			friend std::basic_istream<CharT, Traits>&
-			operator>>(std::basic_istream<CharT, Traits>& is, RNG_ISAAC_BASE& isaac_base_object)
+			operator>>(std::basic_istream<CharT, Traits>& is, RNG_ISAAC& isaac_base_object)
 			{
 				bool failed = false;
 				result_type temporary_result[state_size];
@@ -2654,208 +2661,9 @@ namespace CommonSecurity
 				return is;
 			}
 
-		protected:
-
-			void init()
-			{
-				result_type a = golden();
-				result_type b = golden();
-				result_type c = golden();
-				result_type d = golden();
-				result_type e = golden();
-				result_type f = golden();
-				result_type g = golden();
-				result_type h = golden();
-		
-				issac_base_member_register_a = 0;
-				issac_base_member_register_b = 0;
-				issac_base_member_register_c = 0;
-				
-				/* scramble it */
-				for (std::size_t index = 0; index < 4; ++index)
-				{
-					mix(a,b,c,d,e,f,g,h);
-				}
-		
-				/* initialize using the contents of issac_base_member_result[] as the seed */
-				for (std::size_t index = 0; index < state_size; index += 8)
-				{
-					a += issac_base_member_result[index];
-					b += issac_base_member_result[index+1];
-					c += issac_base_member_result[index+2];
-					d += issac_base_member_result[index+3];
-					e += issac_base_member_result[index+4];
-					f += issac_base_member_result[index+5];
-					g += issac_base_member_result[index+6];
-					h += issac_base_member_result[index+7];
-			
-					mix(a,b,c,d,e,f,g,h);
-			
-					issac_base_member_memory[index] = a;
-					issac_base_member_memory[index+1] = b;
-					issac_base_member_memory[index+2] = c;
-					issac_base_member_memory[index+3] = d;
-					issac_base_member_memory[index+4] = e;
-					issac_base_member_memory[index+5] = f;
-					issac_base_member_memory[index+6] = g;
-					issac_base_member_memory[index+7] = h;
-				}
-		
-				/* do a second pass to make all of the seed affect all of issac_base_member_memory */
-				for (std::size_t index = 0; index < state_size; index += 8)
-				{
-					a += issac_base_member_memory[index];
-					b += issac_base_member_memory[index+1];
-					c += issac_base_member_memory[index+2];
-					d += issac_base_member_memory[index+3];
-					e += issac_base_member_memory[index+4];
-					f += issac_base_member_memory[index+5];
-					g += issac_base_member_memory[index+6];
-					h += issac_base_member_memory[index+7];
-			
-					mix(a,b,c,d,e,f,g,h);
-			
-					issac_base_member_memory[index] = a;
-					issac_base_member_memory[index+1] = b;
-					issac_base_member_memory[index+2] = c;
-					issac_base_member_memory[index+3] = d;
-					issac_base_member_memory[index+4] = e;
-					issac_base_member_memory[index+5] = f;
-					issac_base_member_memory[index+6] = g;
-					issac_base_member_memory[index+7] = h;
-				}
-
-				/* fill in the first set of results */
-				do_isaac();
-
-				/* prepare to use the first set of results */
-				issac_base_member_counter = state_size;
-			}
-	
-			inline void do_isaac()
-			{
-				static_cast<Derived*>(this)->derived_implementation_isaac();
-			}
-	
-			inline result_type golden()
-			{
-				return static_cast<Derived*>(this)->derived_implementation_golden_number();
-			}
-	
-			inline void mix(result_type& a, result_type& b, result_type& c, result_type& d, result_type& e, result_type& f, result_type& g, result_type& h)
-			{
-				static_cast<Derived*>(this)->derived_implementation_mix(a, b, c, d, e, f, g, h);
-			}
-	
-			result_type issac_base_member_result[state_size];
-			result_type issac_base_member_memory[state_size];
-			result_type issac_base_member_register_a;
-			result_type issac_base_member_register_b;
-			result_type issac_base_member_register_c;
-			std::size_t issac_base_member_counter;
-		};
-
-
-		template<std::size_t Alpha = 8>
-		class isaac : public RNG_ISAAC_BASE<isaac<Alpha>, Alpha, std::uint32_t>
-		{
-		public:
-
-			using base = RNG_ISAAC_BASE<isaac, Alpha, std::uint32_t>;
-	
-			friend class RNG_ISAAC_BASE<isaac, Alpha, std::uint32_t>;
-	
-			using result_type = std::uint32_t;
-	
-			explicit isaac(result_type random_seed_number = base::default_seed)
-			:
-			base::RNG_ISAAC_BASE(random_seed_number)
-			{}
-
-			template <typename SeedSeq> 
-			requires( not std::convertible_to<SeedSeq, result_type> )
-			explicit isaac(SeedSeq& random_seed_number_sequence)
-			:
-			base::RNG_ISAAC_BASE(random_seed_number_sequence)
-			{}
-	
-			template<class IteratorType>
-			isaac
-			(
-				IteratorType begin,
-				IteratorType end,
-				typename std::enable_if
-				<
-						std::is_integral<typename std::iterator_traits<IteratorType>::value_type>::value &&
-						std::is_unsigned<typename std::iterator_traits<IteratorType>::value_type>::value
-				>::type * = nullptr
-			)
-			:
-			base::RNG_ISAAC_BASE(begin, end)
-			{}
-
-			isaac(std::random_device& random_device_object)
-			:
-			base::RNG_ISAAC_BASE(random_device_object)
-			{}
-
-			isaac(const isaac& rhs)
-			:
-			base::RNG_ISAAC_BASE(static_cast<const base&>(rhs))
-			{}
+			~RNG_ISAAC() = default;
 
 		private:
-	
-			static constexpr result_type derived_implementation_golden_number()
-			{
-				/* the golden ratio */
-				return static_cast<std::uint32_t>(0x9e3779b9);
-			}
-
-			inline void derived_implementation_mix
-			(
-				result_type& a,
-				result_type& b,
-				result_type& c,
-				result_type& d,
-				result_type& e,
-				result_type& f,
-				result_type& g,
-				result_type& h
-			)
-			{
-				a ^= b << 11;
-				d += a;
-				b += c;
-
-				b ^= c >> 2;
-				e += b;
-				c += d;
-
-				c ^= d << 8;
-				f += c;
-				d += e;
-
-				d ^= e >> 16;
-				g += d;
-				e += f;
-
-				e ^= f << 10;
-				h += e;
-				f += g;
-
-				f ^= g >> 4;
-				a += f;
-				g += h;
-
-				g ^= h << 8;
-				b += g;
-				h += a;
-
-				h ^= a >> 9;
-				c += h;
-				a += b;
-			}
 
 			/*
 				ISAAC (Indirection, Shift, Accumulate, Add, and Count) generates 32-bit random numbers.
@@ -2867,7 +2675,7 @@ namespace CommonSecurity
 			//Use ISAAC+ Algorithm (32 bit)?
 			#if 1
 
-			void derived_implementation_isaac()
+			void implementation_isaac()
 			{
 				/*
 					Modulo a power of two, the following works (assuming twos complement representation):
@@ -2994,7 +2802,7 @@ namespace CommonSecurity
 				*(current_result_array++) = b = x + diffusion_with_indirection_memory_address(old_memory_array, y >> Alpha);
 			}
 
-			void derived_implementation_isaac()
+			void implementation_isaac()
 			{
 				result_type x = 0;
 				result_type y = 0;
@@ -3027,108 +2835,6 @@ namespace CommonSecurity
 			}
 
 			#endif
-		};
-
-		template<std::size_t Alpha = 8>
-		class isaac64 : public RNG_ISAAC_BASE<isaac64<Alpha>, Alpha, std::uint64_t>
-		{
-		public:
-	
-			using result_type = std::uint64_t;
-
-			using base = RNG_ISAAC_BASE<isaac64, Alpha, std::uint64_t>;
-
-			friend class RNG_ISAAC_BASE<isaac64, Alpha, std::uint64_t>;
-	
-			explicit isaac64(result_type random_seed_number = base::default_seed)
-			:
-			base::RNG_ISAAC_BASE(random_seed_number)
-			{}
-
-			template<class SeedSeq>
-			requires( not std::convertible_to<SeedSeq, result_type> )
-			explicit isaac64(SeedSeq& random_seed_number_sequence)
-			:
-			base::RNG_ISAAC_BASE(random_seed_number_sequence)
-			{}
-	
-			template<class IteratorType>
-			isaac64
-			(
-				IteratorType begin,
-				IteratorType end,
-				typename std::enable_if
-				<
-						std::is_integral<typename std::iterator_traits<IteratorType>::value_type>::value &&
-						std::is_unsigned<typename std::iterator_traits<IteratorType>::value_type>::value
-				>::type * = nullptr
-			)
-			:
-			base::RNG_ISAAC_BASE(begin, end)
-			{}
-
-			isaac64(std::random_device& random_device_object)
-			:
-			base::RNG_ISAAC_BASE(random_device_object)
-			{}
-
-			isaac64(const isaac64& rhs)
-			:
-			base::RNG_ISAAC_BASE(static_cast<const base&>(rhs))
-			{}
-
-		private:
-
-			static constexpr result_type derived_implementation_golden_number()
-			{
-				/* the golden ratio */
-				return static_cast<std::uint64_t>(0x9e3779b97f4a7c13);
-			}
-
-			inline void derived_implementation_mix
-			(
-				result_type& a,
-				result_type& b,
-				result_type& c,
-				result_type& d,
-				result_type& e,
-				result_type& f,
-				result_type& g,
-				result_type& h
-			)
-			{
-			   a -= e;
-			   f ^= h >> 9;
-			   h += a;
-
-			   b -= f;
-			   g ^= a << 9;
-			   a += b;
-
-			   c -= g;
-			   h ^= b >> 23;
-			   b += c;
-
-			   d -= h;
-			   a ^= c << 15;
-			   c += d;
-
-			   e -= a;
-			   b ^= d >> 14;
-			   d += e;
-
-			   f -= b;
-			   c ^= e << 20;
-			   e += f;
-
-			   g -= c;
-			   d ^= f >> 17;
-			   f += g;
-
-			   h -= d;
-			   e ^= g << 14;
-			   g += h;
-			}
 
 			/*
 				ISAAC-64 generates a different sequence than ISAAC, but it uses the same principles. It uses 64-bit arithmetic.
@@ -3141,7 +2847,7 @@ namespace CommonSecurity
 			//Use ISAAC+ Algorithm (64 bit)?
 			#if 1
 
-			void derived_implementation_isaac()
+			void implementation_isaac64()
 			{
 				/*
 					Modulo a power of two, the following works (assuming twos complement representation):
@@ -3217,7 +2923,7 @@ namespace CommonSecurity
 
 			//Diffusion of integer numbers by indirection memory address
 			//通过指示性内存地址扩散整数
-			inline result_type diffusion_with_indirection_memory_address(result_type* memory_pointer, result_type current_value)
+			inline result_type diffusion_with_indirection_memory_address64(result_type* memory_pointer, result_type current_value)
 			{
 				/*
 					Modulo a power of two, the following works (assuming twos complement representation):
@@ -3233,7 +2939,7 @@ namespace CommonSecurity
 				return *reinterpret_cast<result_type*>( reinterpret_cast<std::uint8_t*>( memory_pointer ) + ( current_value & mask ) );
 			}
 
-			inline void RNG_do_step
+			inline void RNG_do_step64
 			(
 				const result_type mix,
 				result_type& a,
@@ -3263,13 +2969,13 @@ namespace CommonSecurity
 				a = (a^(mix)) + *(new_memory_array++);
 				//state[index] ← a + b + (state[x] >> 2) mod 512
 				//y == state[index]
-				*(update_memory_array++) = y = a + b + diffusion_with_indirection_memory_address(old_memory_array, x);
+				*(update_memory_array++) = y = a + b + diffusion_with_indirection_memory_address64(old_memory_array, x);
 				//result[index] ← x + (state[state[index]] >> 10) mod 512
 				//b == result[index]
-				*(current_result_array++) = b = x + diffusion_with_indirection_memory_address(old_memory_array, y >> Alpha);
+				*(current_result_array++) = b = x + diffusion_with_indirection_memory_address64(old_memory_array, y >> Alpha);
 			}
 
-			void derived_implementation_isaac()
+			void implementation_isaac64()
 			{
 				result_type x = 0;
 				result_type y = 0;
@@ -3285,24 +2991,199 @@ namespace CommonSecurity
 
 				for (update_memory_array = old_memory_array, new_memory_array_address = new_memory_array = update_memory_array + (this->state_size / 2); update_memory_array < new_memory_array_address; )
 				{
-					RNG_do_step(~(a ^ (a << 21)), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
-					RNG_do_step(a ^ (a >> 5), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
-					RNG_do_step(a ^ (a << 12), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
-					RNG_do_step(a ^ (a >> 33), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
+					RNG_do_step64(~(a ^ (a << 21)), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
+					RNG_do_step64(a ^ (a >> 5), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
+					RNG_do_step64(a ^ (a << 12), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
+					RNG_do_step64(a ^ (a >> 33), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
 				}
 				for (new_memory_array = old_memory_array; new_memory_array < new_memory_array_address; )
 				{
-					RNG_do_step(~(a ^ (a << 21)), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
-					RNG_do_step(a ^ (a >> 5), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
-					RNG_do_step(a ^ (a << 12), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
-					RNG_do_step(a ^ (a >> 33), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
+					RNG_do_step64(~(a ^ (a << 21)), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
+					RNG_do_step64(a ^ (a >> 5), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
+					RNG_do_step64(a ^ (a << 12), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
+					RNG_do_step64(a ^ (a >> 33), a, b, old_memory_array, update_memory_array, new_memory_array, current_result_array, x, y);
 				}
 				this->issac_base_member_register_b = b;
 				this->issac_base_member_register_a = a;
 			}
 
 			#endif
+
+			void init()
+			{
+				result_type a = golden();
+				result_type b = golden();
+				result_type c = golden();
+				result_type d = golden();
+				result_type e = golden();
+				result_type f = golden();
+				result_type g = golden();
+				result_type h = golden();
+		
+				issac_base_member_register_a = 0;
+				issac_base_member_register_b = 0;
+				issac_base_member_register_c = 0;
+				
+				/* scramble it */
+				for (std::size_t index = 0; index < 4; ++index)
+				{
+					mix(a,b,c,d,e,f,g,h);
+				}
+		
+				/* initialize using the contents of issac_base_member_result[] as the seed */
+				for (std::size_t index = 0; index < state_size; index += 8)
+				{
+					a += issac_base_member_result[index];
+					b += issac_base_member_result[index+1];
+					c += issac_base_member_result[index+2];
+					d += issac_base_member_result[index+3];
+					e += issac_base_member_result[index+4];
+					f += issac_base_member_result[index+5];
+					g += issac_base_member_result[index+6];
+					h += issac_base_member_result[index+7];
+			
+					mix(a,b,c,d,e,f,g,h);
+			
+					issac_base_member_memory[index] = a;
+					issac_base_member_memory[index+1] = b;
+					issac_base_member_memory[index+2] = c;
+					issac_base_member_memory[index+3] = d;
+					issac_base_member_memory[index+4] = e;
+					issac_base_member_memory[index+5] = f;
+					issac_base_member_memory[index+6] = g;
+					issac_base_member_memory[index+7] = h;
+				}
+		
+				/* do a second pass to make all of the seed affect all of issac_base_member_memory */
+				for (std::size_t index = 0; index < state_size; index += 8)
+				{
+					a += issac_base_member_memory[index];
+					b += issac_base_member_memory[index+1];
+					c += issac_base_member_memory[index+2];
+					d += issac_base_member_memory[index+3];
+					e += issac_base_member_memory[index+4];
+					f += issac_base_member_memory[index+5];
+					g += issac_base_member_memory[index+6];
+					h += issac_base_member_memory[index+7];
+			
+					mix(a,b,c,d,e,f,g,h);
+			
+					issac_base_member_memory[index] = a;
+					issac_base_member_memory[index+1] = b;
+					issac_base_member_memory[index+2] = c;
+					issac_base_member_memory[index+3] = d;
+					issac_base_member_memory[index+4] = e;
+					issac_base_member_memory[index+5] = f;
+					issac_base_member_memory[index+6] = g;
+					issac_base_member_memory[index+7] = h;
+				}
+
+				/* fill in the first set of results */
+				do_isaac();
+			}
+
+			inline void do_isaac()
+			{
+				if constexpr(std::same_as<result_type,std::uint32_t>)
+					this->implementation_isaac();
+				else if constexpr(std::same_as<result_type,std::uint64_t>)
+					this->implementation_isaac64();
+			}
+
+			/* the golden ratio */
+			inline result_type golden()
+			{
+				if constexpr(std::same_as<result_type,std::uint32_t>)
+					return static_cast<std::uint32_t>(0x9e3779b9);
+				else if constexpr(std::same_as<result_type,std::uint64_t>)
+					return static_cast<std::uint64_t>(0x9e3779b97f4a7c13);
+			}
+	
+			inline void mix(result_type& a, result_type& b, result_type& c, result_type& d, result_type& e, result_type& f, result_type& g, result_type& h)
+			{
+				if constexpr(std::same_as<result_type,std::uint32_t>)
+				{
+					a ^= b << 11;
+					d += a;
+					b += c;
+
+					b ^= c >> 2;
+					e += b;
+					c += d;
+
+					c ^= d << 8;
+					f += c;
+					d += e;
+
+					d ^= e >> 16;
+					g += d;
+					e += f;
+
+					e ^= f << 10;
+					h += e;
+					f += g;
+
+					f ^= g >> 4;
+					a += f;
+					g += h;
+
+					g ^= h << 8;
+					b += g;
+					h += a;
+
+					h ^= a >> 9;
+					c += h;
+					a += b;
+				}
+				else if constexpr(std::same_as<result_type,std::uint64_t>)
+				{
+					a -= e;
+					f ^= h >> 9;
+					h += a;
+
+					b -= f;
+					g ^= a << 9;
+					a += b;
+
+					c -= g;
+					h ^= b >> 23;
+					b += c;
+
+					d -= h;
+					a ^= c << 15;
+					c += d;
+
+					e -= a;
+					b ^= d >> 14;
+					d += e;
+
+					f -= b;
+					c ^= e << 20;
+					e += f;
+
+					g -= c;
+					d ^= f >> 17;
+					f += g;
+
+					h -= d;
+					e ^= g << 14;
+					g += h;
+				}
+			}
+	
+			std::array<result_type, state_size> issac_base_member_result {};
+			std::array<result_type, state_size> issac_base_member_memory {};
+			result_type issac_base_member_register_a = 0;
+			result_type issac_base_member_register_b = 0;
+			result_type issac_base_member_register_c = 0;
+			std::size_t	issac_base_member_counter = 0;
 		};
+
+		template<std::size_t Alpha = 8>
+		using isaac = RNG_ISAAC<Alpha, std::uint32_t>;
+
+		template<std::size_t Alpha = 8>
+		using isaac64 = RNG_ISAAC<Alpha, std::uint64_t>;
 	}
 
 	/*
